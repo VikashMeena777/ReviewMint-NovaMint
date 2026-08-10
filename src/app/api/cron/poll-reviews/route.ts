@@ -5,7 +5,6 @@ import {
   fetchReviews,
   postReply,
   starRatingToNumber,
-  type GBPReview,
 } from "@/lib/google/gbp-client";
 import { generateReply } from "@/lib/ai/reply-engine";
 import type { AIReplyRequest } from "@/types";

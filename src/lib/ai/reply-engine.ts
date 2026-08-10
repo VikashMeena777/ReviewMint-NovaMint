@@ -52,9 +52,11 @@ Respond ONLY with the reply text. No quotes, no labels, no explanation.`;
 }
 
 // ─── Analyze sentiment ──────────────────────
+// Derived from the star rating alone. The review body is deliberately not
+// consulted: ratings are the signal the business acts on, and inferring
+// sentiment from text disagreed with the star often enough to be noise.
 function analyzeSentiment(
-  starRating: number,
-  reviewText: string | null
+  starRating: number
 ): { sentiment: "positive" | "neutral" | "negative"; score: number } {
   if (starRating >= 4) return { sentiment: "positive", score: starRating / 5 };
   if (starRating === 3) return { sentiment: "neutral", score: 0.5 };
@@ -102,10 +104,7 @@ export async function generateReply(
   request: AIReplyRequest
 ): Promise<AIReplyResponse> {
   const prompt = buildReplyPrompt(request);
-  const { sentiment, score } = analyzeSentiment(
-    request.starRating,
-    request.reviewText
-  );
+  const { sentiment, score } = analyzeSentiment(request.starRating);
 
   let reply: string;
 

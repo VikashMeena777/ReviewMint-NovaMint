@@ -1,9 +1,0 @@
-/* ReviewMint — main stylesheet */
-@import "../styles/globals.css";
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--text-primary);
-  --font-sans: var(--font-body);
-  --font-mono: var(--font-mono);
-}

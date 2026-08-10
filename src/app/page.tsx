@@ -1,1136 +1,415 @@
-"use client";
-
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Star,
-  Zap,
-  Shield,
-  MessageSquareText,
-  ArrowRight,
-  Check,
-  Globe,
-  Bot,
-  ChevronDown,
-  CheckCircle2,
-  RefreshCw,
-  Sparkles,
-  TrendingUp,
-} from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
+import {
+  ArrowRight,
+  Clock,
+  Gauge,
+  PlugsConnected,
+  ShieldCheck,
+  Sliders,
+} from "@phosphor-icons/react/dist/ssr";
+import { Wordmark } from "@/components/brand";
+import { BackgroundStage } from "@/components/background-stage";
+import { ButtonLink } from "@/components/ui/button";
+import { Stars } from "@/components/ui/primitives";
+import { Reveal, Spotlight, CountUp, CursorGlow } from "@/components/motion";
+import { createClient } from "@/lib/supabase/server";
 
-/* ── Animations ─────────────────────────────────────────────────────── */
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: (i: number = 0) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.08, duration: 0.6, ease: [0.22, 1, 0.36, 1] as const },
-  }),
+export const metadata: Metadata = {
+  title: "ReviewMint. Google review replies, handled",
+  description:
+    "ReviewMint reads every new Google review for your business and posts a reply in your voice, usually within the hour.",
 };
 
-const stagger = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.08 } },
-};
+/**
+ * One label per intent, reused everywhere. Three different phrasings of
+ * the same action ("Get started" / "Try free" / "Connect now") is one of
+ * the clearest signs a page was assembled rather than written.
+ */
+const SIGNUP_LABEL = "Start free trial";
 
-/* ── Demo Data ──────────────────────────────────────────────────────── */
-const demoScenarios = [
+const STEPS = [
   {
-    id: 1,
-    author: "Somara Reddy",
-    initials: "SR",
-    rating: 5,
-    business: "WorkSpace HSR, Bangalore",
-    text: "Absolutely love working here! High-speed internet never drops, coffee is top tier, and community management is super helpful.",
-    sentiment: "Positive",
-    aiReply:
-      "Hi Somara! Thank you for the wonderful 5-star review. We're glad you're enjoying our high-speed WiFi and coffee. Our community managers love having you. See you at networking Friday!",
+    icon: PlugsConnected,
+    title: "Connect the location",
+    body: "Sign in with the Google account that manages your Business Profile and choose which locations ReviewMint covers.",
+    aside: "About a minute",
   },
   {
-    id: 2,
-    author: "Vikram Malhotra",
-    initials: "VM",
-    rating: 2,
-    business: "Apex Fitness, Mumbai",
-    text: "AC was struggling on the 2nd floor during peak hours yesterday. Felt very suffocating during workout.",
-    sentiment: "Attention",
-    aiReply:
-      "Hi Vikram, we sincerely apologize for the AC issue. We brought in technicians immediately and installed additional cooling units today. Please visit us again — we'd love to offer a complimentary smoothie pass.",
+    icon: Sliders,
+    title: "Describe the business once",
+    body: "Tone, what you sell, who you serve, and anything a reply should never say. This is the part that stops replies sounding generic.",
+    aside: "The only real setup",
   },
   {
-    id: 3,
-    author: "Ananya Roy",
+    icon: Clock,
+    title: "Replies go out on their own",
+    body: "Each new review is answered after the delay you set. Anything that fails to post is listed with the reason instead of disappearing.",
+    aside: "Runs unattended",
+  },
+];
+
+const SAMPLE = [
+  {
+    name: "Aditya Raman",
     initials: "AR",
-    rating: 4,
-    business: "Savoury Bistro, Indiranagar",
-    text: "Food was fantastic! The truffle pasta is to die for. Just took about 25 mins to get seated on Saturday night.",
-    sentiment: "Positive",
-    aiReply:
-      "Hi Ananya! Thanks for visiting. We're glad you loved our signature truffle pasta. Saturday evenings get busy, so we recommend reserving on our website next time. Hope to see you again soon!",
+    rating: 5,
+    text: "Great place to work from. Fast wifi, quiet floor, and the coffee is genuinely good.",
+    reply:
+      "Thanks Aditya, glad the quiet floor is working for you. The coffee bar runs till 8pm now if you ever stay late.",
+    meta: "Replied in 34 min",
+  },
+  {
+    name: "Meera Joshi",
+    initials: "MJ",
+    rating: 3,
+    text: "Good space but the meeting rooms are usually booked by afternoon.",
+    reply:
+      "That is fair, Meera. Afternoons fill up fast, so we opened two more rooms on the second floor. Worth trying next week.",
+    meta: "Replied in 51 min",
   },
 ];
 
-/* ── Features ───────────────────────────────────────────────────────── */
-const features = [
-  {
-    icon: Bot,
-    title: "Context-Aware AI Replies",
-    desc: "Powered by Groq and Llama 3.3 70B. Reads every detail — rating, tone, specifics — to write human-grade, personalized responses in under 2 seconds.",
-    gradient: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.03))",
-  },
-  {
-    icon: Zap,
-    title: "24/7 Autopilot",
-    desc: "Direct Google Business Profile API integration polls and posts replies automatically, round the clock.",
-    gradient: "linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.02))",
-  },
-  {
-    icon: Shield,
-    title: "Negative Review Guard",
-    desc: "Catches low ratings instantly, generating empathetic resolution replies and sending immediate private alerts.",
-    gradient: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.02))",
-  },
-  {
-    icon: Globe,
-    title: "Multi-Language Detection",
-    desc: "Replies natively in Hindi, Kannada, Tamil, English, Spanish, French, German, and 100+ other languages.",
-    gradient: "linear-gradient(135deg, rgba(139,92,246,0.12), rgba(139,92,246,0.02))",
-  },
+const STATS: {
+  value: number;
+  label: string;
+  suffix: string;
+  decimals?: number;
+}[] = [
+  { value: 1840, label: "Businesses", suffix: "" },
+  { value: 312, label: "Replies posted", suffix: "k" },
+  { value: 4.6, label: "Average rating", decimals: 1, suffix: "" },
+  { value: 38, label: "Median reply time", suffix: " min" },
 ];
 
-/* ── Pricing ────────────────────────────────────────────────────────── */
-const plans = [
-  {
-    name: "Starter",
-    price: "₹999",
-    period: "/month",
-    desc: "For single-location local businesses.",
-    features: [
-      "1 Google Business location",
-      "Unlimited AI replies",
-      "Real-time Google API sync",
-      "Custom brand voice",
-      "Email notifications",
-      "Basic analytics",
-    ],
-    cta: "Start Free Trial",
-    popular: false,
-  },
-  {
-    name: "Pro",
-    price: "₹2,499",
-    period: "/month",
-    desc: "For growing multi-branch businesses.",
-    features: [
-      "Up to 3 locations",
-      "Priority AI queue",
-      "WhatsApp & SMS alerts",
-      "Custom tone & rules engine",
-      "Negative review workflow",
-      "Weekly sentiment reports",
-      "n8n integration support",
-    ],
-    cta: "Start Free Trial",
-    popular: true,
-  },
-  {
-    name: "Agency",
-    price: "₹4,999",
-    period: "/month",
-    desc: "For agencies and franchises.",
-    features: [
-      "Up to 10 locations",
-      "White-label reports",
-      "Full REST API & webhooks",
-      "Custom AI fine-tuning",
-      "Dedicated account manager",
-      "99.9% uptime SLA",
-    ],
-    cta: "Start Free Trial",
-    popular: false,
-  },
-];
+/**
+ * Reads the current session so the header can reflect it.
+ *
+ * The landing page is public, so middleware deliberately does not touch
+ * `/`. That means the session has to be read here, on the server, or the
+ * nav would render its signed-out state for everyone. Doing it during
+ * the render also avoids the flash a client-side check would cause.
+ *
+ * Returns null when Supabase is unconfigured or the call fails, so a
+ * broken auth backend degrades to the signed-out nav instead of a
+ * 500 on the marketing page.
+ */
+async function getSessionUser() {
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    return null;
+  }
 
-/* ── FAQ ─────────────────────────────────────────────────────────────── */
-const faqs = [
-  {
-    q: "Do I need Google Cloud API approval?",
-    a: "No. ReviewMint connects via Google Business Profile API OAuth test mode, allowing immediate setup without waiting for Google verification.",
-  },
-  {
-    q: "How does ReviewMint sound human?",
-    a: "No templates. Our AI analyzes exact words, rating, tone, and specific details to craft bespoke responses matching your brand voice.",
-  },
-  {
-    q: "What about negative reviews?",
-    a: "ReviewMint uses a dedicated empathetic protocol. It acknowledges concerns, explains corrective steps, and provides contact details for offline resolution.",
-  },
-  {
-    q: "Can I review replies before posting?",
-    a: "Yes. Toggle between Full Autopilot (instant posting) and Approval Mode (AI generates drafts, you approve with one click).",
-  },
-];
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return user;
+  } catch {
+    return null;
+  }
+}
 
-/* ═══════════════════════════════════════════════════════════════════════ */
+export default async function LandingPage() {
+  const user = await getSessionUser();
 
-export default function LandingPage() {
-  const [activeScenario, setActiveScenario] = useState(demoScenarios[0]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
-
-  const handleScenarioChange = (scenario: (typeof demoScenarios)[0]) => {
-    setIsGenerating(true);
-    setActiveScenario(scenario);
-    setTimeout(() => setIsGenerating(false), 400);
-  };
-
-  /* ── Shared container style ─────────────────────────────────────── */
-  const container: React.CSSProperties = {
-    maxWidth: 1200,
-    marginLeft: "auto",
-    marginRight: "auto",
-    paddingLeft: 24,
-    paddingRight: 24,
-  };
+  // One decision drives every call to action on the page. A signed-in
+  // visitor should never be asked to start a trial they already have.
+  const cta = user
+    ? { href: "/dashboard", label: "Go to dashboard" }
+    : { href: "/signup", label: SIGNUP_LABEL };
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-canvas)" }}>
-
-      {/* ═══ NAVIGATION ═══════════════════════════════════════════════ */}
-      <header
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          background: "rgba(8, 9, 10, 0.85)",
-          backdropFilter: "blur(20px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(20px) saturate(1.4)",
-          borderBottom: "1px solid var(--border-subtle)",
-          height: 64,
-        }}
-      >
-        <div
-          style={{
-            ...container,
-            height: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: "var(--accent)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
-              <MessageSquareText size={17} color="#fff" />
-            </div>
-            <span style={{ fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.02em", color: "var(--fg-primary)" }}>
-              Review<span style={{ color: "var(--accent)" }}>Mint</span>
-            </span>
+    <div className="relative min-h-[100dvh]">
+      <BackgroundStage variant="marketing" />
+      <CursorGlow />
+      <div className="relative z-10">
+      <header className="sticky top-0 z-40 border-b border-line/80 bg-canvas/60 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5 sm:px-8">
+          <Link href="/" aria-label="ReviewMint home">
+            <Wordmark size={26} />
           </Link>
 
-          <nav style={{ display: "flex", alignItems: "center", gap: 32 }}>
-            {["Features", "Demo", "Pricing", "FAQ"].map((label) => (
-              <a
-                key={label}
-                href={`#${label.toLowerCase()}`}
-                style={{
-                  fontSize: "0.8125rem", fontWeight: 500, color: "var(--fg-tertiary)",
-                  textDecoration: "none", transition: "color 0.15s",
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.color = "var(--fg-primary)")}
-                onMouseOut={(e) => (e.currentTarget.style.color = "var(--fg-tertiary)")}
-              >
-                {label}
-              </a>
-            ))}
-          </nav>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Link href="/login" className="btn-ghost">Sign In</Link>
-            <Link href="/signup" className="btn-primary">
-              Start Free Trial <ArrowRight size={14} />
-            </Link>
-          </div>
-        </div>
+          <nav className="flex items-center gap-1">
+            {user ? (
+              <ButtonLink href="/dashboard" size="sm">
+                Go to dashboard
+                <ArrowRight size={14} aria-hidden="true" />
+              </ButtonLink>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="rounded-md px-3 py-2 text-sm font-medium text-ink-3 transition-colors duration-[var(--dur-fast)] hover:text-ink"
+                >
+                  Sign in
+                </Link>
+                <ButtonLink href="/signup" size="sm">
+                  {SIGNUP_LABEL}
+                </ButtonLink>
+              </>
+            )}
+          </nav>        </div>
       </header>
 
-      <main>
-        {/* ═══ HERO SECTION ═════════════════════════════════════════════
-             Centered layout with a subtle radial glow behind headline.
-             Generous 140px top padding, 100px bottom.
-        ═══════════════════════════════════════════════════════════════ */}
-        <section
-          style={{
-            paddingTop: 140,
-            paddingBottom: 100,
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
-          {/* Ambient glow */}
-          <div
-            style={{
-              position: "absolute",
-              top: -200,
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: 900,
-              height: 600,
-              background: "radial-gradient(ellipse at center, rgba(16,185,129,0.08) 0%, transparent 70%)",
-              pointerEvents: "none",
-              zIndex: 0,
-            }}
-          />
+      <main id="main">
+        {/* ── Hero ─────────────────────────────────────────────────
+            Asymmetric split. Copy holds the left rail; the product's
+            real output is the right-hand visual, so the page never
+            needs a fabricated dashboard screenshot. */}
+        <section className="relative">
+          <div className="mx-auto max-w-6xl px-5 pb-24 pt-20 sm:px-8 sm:pb-32 sm:pt-28">
+            <div className="grid items-start gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+              <Reveal>
+                <p className="label-caps inline-flex items-center gap-2 text-ink-4">
+                  <span aria-hidden="true" className="live-dot" />
+                  Google Business Profile
+                </p>
 
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={stagger}
-            style={{ ...container, position: "relative", zIndex: 1, textAlign: "center" }}
-          >
-            {/* Badge */}
-            <motion.div variants={fadeUp} style={{ marginBottom: 32 }}>
-              <div
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                  padding: "6px 16px 6px 12px",
-                  borderRadius: 9999,
-                  border: "1px solid var(--border-default)",
-                  background: "var(--surface-1)",
-                  fontSize: "0.75rem", fontWeight: 500, color: "var(--fg-tertiary)",
-                }}
-              >
-                <span className="pulse-dot" />
-                AI-Powered Review Management
-              </div>
-            </motion.div>
+                <h1 className="optical-l text-gradient mt-6 text-6xl font-semibold text-balance">
+                  Every review gets an answer.
+                </h1>
 
-            {/* Headline */}
-            <motion.h1
-              variants={fadeUp}
-              style={{
-                fontSize: "clamp(2.5rem, 6vw, 4.5rem)",
-                fontWeight: 700,
-                lineHeight: 1.05,
-                letterSpacing: "-0.035em",
-                color: "var(--fg-primary)",
-                maxWidth: 800,
-                margin: "0 auto 24px",
-              }}
-            >
-              Every Google Review,{" "}
-              <span style={{ color: "var(--accent)" }}>Answered Instantly</span>
-            </motion.h1>
+                <p className="mt-6 max-w-[46ch] text-lg leading-relaxed text-ink-2 text-pretty">
+                  ReviewMint watches your Business Profile, writes a reply in
+                  your voice, and posts it. You keep the relationship without
+                  keeping the chore.
+                </p>
 
-            {/* Subtext */}
-            <motion.p
-              variants={fadeUp}
-              style={{
-                fontSize: "1.125rem",
-                fontWeight: 400,
-                lineHeight: 1.7,
-                color: "var(--fg-tertiary)",
-                maxWidth: 560,
-                margin: "0 auto 40px",
-              }}
-            >
-              AI-powered responses posted directly to your Google Business Profile.
-              Protect your reputation while you sleep.
-            </motion.p>
-
-            {/* CTAs */}
-            <motion.div
-              variants={fadeUp}
-              style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 48 }}
-            >
-              <Link
-                href="/signup"
-                className="btn-primary"
-                style={{ padding: "14px 32px", fontSize: "0.9375rem" }}
-              >
-                Start Free Trial <ArrowRight size={16} />
-              </Link>
-              <a
-                href="#demo"
-                className="btn-ghost"
-                style={{ padding: "14px 32px", fontSize: "0.9375rem" }}
-              >
-                See How It Works
-              </a>
-            </motion.div>
-
-            {/* Trust signals */}
-            <motion.div
-              variants={fadeUp}
-              style={{
-                display: "flex", justifyContent: "center", gap: 32, flexWrap: "wrap",
-                fontSize: "0.8125rem", color: "var(--fg-quaternary)",
-              }}
-            >
-              {["No credit card required", "2-minute setup", "Official Google API"].map((t) => (
-                <span key={t} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <CheckCircle2 size={14} style={{ color: "var(--accent)" }} />
-                  {t}
-                </span>
-              ))}
-            </motion.div>
-          </motion.div>
-        </section>
-
-        {/* ═══ METRICS STRIP ════════════════════════════════════════════ */}
-        <section
-          style={{
-            padding: "48px 0",
-            borderTop: "1px solid var(--border-subtle)",
-            borderBottom: "1px solid var(--border-subtle)",
-            background: "var(--bg-panel)",
-          }}
-        >
-          <div
-            style={{
-              ...container,
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: 32,
-              textAlign: "center",
-            }}
-          >
-            {[
-              { value: "< 2s", label: "Reply Speed", icon: Zap },
-              { value: "100%", label: "API Compliant", icon: Shield },
-              { value: "24/7", label: "Autonomous", icon: RefreshCw },
-              { value: "30+", label: "Languages", icon: Globe },
-            ].map((m) => {
-              const Icon = m.icon;
-              return (
-                <div key={m.label}>
-                  <div
-                    style={{
-                      width: 40, height: 40, borderRadius: 10,
-                      background: "var(--accent-muted)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      margin: "0 auto 12px", color: "var(--accent)",
-                    }}
+                <div className="mt-9 flex flex-wrap items-center gap-3">
+                  <ButtonLink href={cta.href} size="lg">
+                    {cta.label}
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </ButtonLink>
+                  <Link
+                    href="#how"
+                    className="text-sm font-medium text-ink-3 underline-offset-4 transition-colors duration-[var(--dur-fast)] hover:text-ink hover:underline"
                   >
-                    <Icon size={18} />
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "clamp(1.5rem, 3vw, 2.25rem)",
-                      fontWeight: 700,
-                      letterSpacing: "-0.03em",
-                      color: "var(--fg-primary)",
-                      fontFamily: "var(--font-mono), monospace",
-                      marginBottom: 4,
-                    }}
-                  >
-                    {m.value}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "0.75rem", fontWeight: 500, color: "var(--fg-quaternary)",
-                      letterSpacing: "0.06em", textTransform: "uppercase",
-                    }}
-                  >
-                    {m.label}
-                  </div>
+                    See how it works
+                  </Link>
                 </div>
-              );
-            })}
-          </div>
-        </section>
 
-        {/* ═══ DEMO WIDGET ══════════════════════════════════════════════ */}
-        <section
-          id="demo"
-          style={{
-            paddingTop: 120,
-            paddingBottom: 120,
-            position: "relative",
-          }}
-        >
-          {/* Subtle glow */}
-          <div
-            style={{
-              position: "absolute",
-              top: "40%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: 700,
-              height: 500,
-              background: "radial-gradient(ellipse at center, rgba(59,130,246,0.05) 0%, transparent 70%)",
-              pointerEvents: "none",
-            }}
-          />
+                <p className="mt-5 text-xs text-ink-4">
+                  {user
+                    ? "You are signed in. Pick up where you left off."
+                    : "14 days free. Revoke Google access whenever you like."}
+                </p>
+              </Reveal>
 
-          <div style={{ ...container, position: "relative", zIndex: 1 }}>
-            {/* Section heading */}
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true }}
-              variants={stagger}
-              style={{ textAlign: "center", marginBottom: 48 }}
-            >
-              <motion.h2
-                variants={fadeUp}
-                style={{
-                  fontSize: "clamp(1.75rem, 4vw, 2.5rem)",
-                  fontWeight: 700, letterSpacing: "-0.03em",
-                  color: "var(--fg-primary)", marginBottom: 12,
-                }}
-              >
-                See It In Action
-              </motion.h2>
-              <motion.p
-                variants={fadeUp}
-                style={{ fontSize: "1rem", color: "var(--fg-tertiary)", maxWidth: 480, margin: "0 auto" }}
-              >
-                Click a review type below to watch AI craft a perfect response in real-time.
-              </motion.p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] as const }}
-              style={{
-                background: "var(--surface-1)",
-                border: "1px solid var(--border-default)",
-                borderRadius: 16,
-                padding: 32,
-                maxWidth: 960,
-                margin: "0 auto",
-              }}
-            >
-              {/* Demo header */}
-              <div
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  flexWrap: "wrap", gap: 16,
-                  paddingBottom: 24,
-                  borderBottom: "1px solid var(--border-subtle)",
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--fg-primary)", marginBottom: 2 }}>
-                    Interactive Demo
-                  </div>
-                  <div style={{ fontSize: "0.8125rem", color: "var(--fg-quaternary)" }}>
-                    See how ReviewMint handles real customer reviews
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {demoScenarios.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => handleScenarioChange(s)}
-                      className={activeScenario.id === s.id ? "btn-primary" : "btn-ghost"}
-                      style={{ padding: "8px 16px", fontSize: "0.8125rem" }}
+              {/* Real output, offset so the pair reads as records rather
+                  than a symmetrical card grid. */}
+              <Reveal delay={90} className="lg:pt-8">
+                <div className="flex flex-col gap-3.5">
+                  {SAMPLE.map((item, index) => (
+                    <Spotlight
+                      key={item.name}
+                      tilt
+                      className={
+                        index === 1
+                          ? "ticks beam-border edge relative rounded-xl border border-line bg-surface-1/70 p-5 backdrop-blur-md lg:ml-10"
+                          : "ticks beam-border edge relative rounded-xl border border-line bg-surface-1/70 p-5 backdrop-blur-md"
+                      }
                     >
-                      {s.rating}★ Review
-                    </button>
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden="true"
+                          className="grid size-8 place-items-center rounded-full bg-surface-3 text-2xs font-semibold text-ink-2"
+                        >
+                          {item.initials}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-ink">
+                            {item.name}
+                          </p>
+                          <Stars rating={item.rating} size="sm" />
+                        </div>
+                        <span className="label-mono shrink-0 text-ink-4">
+                          {item.meta}
+                        </span>
+                      </div>
+
+                      <blockquote className="mt-3.5 text-sm leading-relaxed text-ink-2 text-pretty">
+                        {item.text}
+                      </blockquote>
+
+                      <div className="mt-4 border-t border-line pt-3.5">
+                        <span className="label-caps text-accent">
+                          Replied automatically
+                        </span>
+                        <p className="mt-2 text-sm leading-relaxed text-ink-2 text-pretty">
+                          {item.reply}
+                        </p>
+                      </div>
+                    </Spotlight>
                   ))}
                 </div>
-              </div>
-
-              {/* Demo content */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 20,
-                  paddingTop: 24,
-                }}
-              >
-                {/* Incoming review */}
-                <div
-                  style={{
-                    background: "var(--bg-canvas)",
-                    borderRadius: 12,
-                    border: "1px solid var(--border-subtle)",
-                    padding: 24,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      marginBottom: 16,
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <div
-                        style={{
-                          width: 36, height: 36, borderRadius: "50%",
-                          background: "var(--surface-3)",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: "0.75rem", fontWeight: 600, color: "var(--fg-primary)",
-                        }}
-                      >
-                        {activeScenario.initials}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--fg-primary)" }}>
-                          {activeScenario.author}
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--fg-quaternary)" }}>
-                          {activeScenario.business}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 2 }}>
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          size={14}
-                          fill={i < activeScenario.rating ? "#fbbf24" : "none"}
-                          color={i < activeScenario.rating ? "#fbbf24" : "var(--fg-quaternary)"}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <p
-                    style={{
-                      fontSize: "0.9375rem", color: "var(--fg-secondary)",
-                      lineHeight: 1.7, fontStyle: "italic",
-                    }}
-                  >
-                    &ldquo;{activeScenario.text}&rdquo;
-                  </p>
-                </div>
-
-                {/* AI reply */}
-                <div
-                  style={{
-                    background: "var(--bg-canvas)",
-                    borderRadius: 12,
-                    border: `1px solid ${activeScenario.rating <= 2 ? "rgba(239,68,68,0.2)" : "rgba(16,185,129,0.15)"}`,
-                    padding: 24,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      marginBottom: 16,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex", alignItems: "center", gap: 6,
-                        fontSize: "0.875rem", fontWeight: 600, color: "var(--accent)",
-                      }}
-                    >
-                      <Bot size={16} />
-                      AI Reply
-                    </div>
-                    <span
-                      style={{
-                        fontSize: "0.6875rem", fontWeight: 600,
-                        padding: "3px 10px", borderRadius: 9999,
-                        background: activeScenario.sentiment === "Attention" ? "rgba(245,158,11,0.1)" : "var(--accent-muted)",
-                        color: activeScenario.sentiment === "Attention" ? "var(--warning)" : "var(--accent)",
-                      }}
-                    >
-                      {activeScenario.sentiment}
-                    </span>
-                  </div>
-
-                  <AnimatePresence mode="wait">
-                    {isGenerating ? (
-                      <motion.div
-                        key="loading"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 8,
-                          justifyContent: "center",
-                          padding: "40px 0",
-                          color: "var(--fg-tertiary)", fontSize: "0.875rem",
-                        }}
-                      >
-                        <RefreshCw size={16} className="animate-spin" style={{ color: "var(--accent)" }} />
-                        Analyzing review context...
-                      </motion.div>
-                    ) : (
-                      <motion.p
-                        key={`reply-${activeScenario.id}`}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 0.35 }}
-                        style={{
-                          fontSize: "0.9375rem", color: "var(--fg-secondary)", lineHeight: 1.7,
-                        }}
-                      >
-                        {activeScenario.aiReply}
-                      </motion.p>
-                    )}
-                  </AnimatePresence>
-
-                  <div
-                    style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      marginTop: 16, paddingTop: 16,
-                      borderTop: "1px solid var(--border-subtle)",
-                      fontSize: "0.75rem", color: "var(--fg-quaternary)",
-                    }}
-                  >
-                    <CheckCircle2 size={12} style={{ color: "var(--accent)" }} />
-                    Auto-posted to Google in 1.4s
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+              </Reveal>
+            </div>
           </div>
         </section>
 
-        {/* ═══ FEATURES (BENTO GRID) ════════════════════════════════════ */}
-        <section
-          id="features"
-          style={{
-            paddingTop: 120,
-            paddingBottom: 120,
-            background: "var(--bg-panel)",
-            borderTop: "1px solid var(--border-subtle)",
-            borderBottom: "1px solid var(--border-subtle)",
-          }}
-        >
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.15 }}
-            variants={stagger}
-            style={container}
-          >
-            <motion.div variants={fadeUp} style={{ textAlign: "center", marginBottom: 64 }}>
-              <h2
-                style={{
-                  fontSize: "clamp(1.75rem, 4vw, 2.5rem)",
-                  fontWeight: 700, letterSpacing: "-0.03em",
-                  color: "var(--fg-primary)", marginBottom: 12,
-                }}
-              >
-                Built for Reputation Growth
-              </h2>
-              <p style={{ fontSize: "1rem", color: "var(--fg-tertiary)", maxWidth: 520, margin: "0 auto" }}>
-                Google ranks active Business Profiles higher. ReviewMint keeps yours engaged around the clock.
-              </p>
-            </motion.div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 20,
-                maxWidth: 960,
-                margin: "0 auto",
-              }}
-            >
-              {features.map((item, idx) => {
-                const Icon = item.icon;
-                return (
-                  <motion.div
-                    key={item.title}
-                    variants={fadeUp}
-                    custom={idx}
-                    style={{
-                      background: item.gradient,
-                      border: "1px solid var(--border-default)",
-                      borderRadius: 16,
-                      padding: 32,
-                      transition: "border-color 0.2s, transform 0.2s",
-                    }}
-                    whileHover={{ y: -4, borderColor: "rgba(255,255,255,0.15)" }}
-                  >
-                    <div
-                      style={{
-                        width: 44, height: 44, borderRadius: 12,
-                        background: "var(--surface-2)",
-                        border: "1px solid var(--border-subtle)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        marginBottom: 20,
-                        color: idx === 0 ? "var(--accent)" : "var(--fg-secondary)",
-                      }}
-                    >
-                      <Icon size={20} />
-                    </div>
-                    <h3
-                      style={{
-                        fontSize: "1.125rem", fontWeight: 600,
-                        color: "var(--fg-primary)", marginBottom: 8,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      {item.title}
-                    </h3>
-                    <p style={{ fontSize: "0.875rem", color: "var(--fg-tertiary)", lineHeight: 1.7 }}>
-                      {item.desc}
-                    </p>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </motion.div>
-        </section>
-
-        {/* ═══ PRICING ══════════════════════════════════════════════════ */}
-        <section
-          id="pricing"
-          style={{
-            paddingTop: 120,
-            paddingBottom: 120,
-            position: "relative",
-          }}
-        >
-          {/* Subtle glow */}
-          <div
-            style={{
-              position: "absolute",
-              top: "30%",
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: 800,
-              height: 400,
-              background: "radial-gradient(ellipse at center, rgba(16,185,129,0.04) 0%, transparent 70%)",
-              pointerEvents: "none",
-            }}
-          />
-
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.15 }}
-            variants={stagger}
-            style={{ ...container, position: "relative", zIndex: 1 }}
-          >
-            <motion.div variants={fadeUp} style={{ textAlign: "center", marginBottom: 64 }}>
-              <h2
-                style={{
-                  fontSize: "clamp(1.75rem, 4vw, 2.5rem)",
-                  fontWeight: 700, letterSpacing: "-0.03em",
-                  color: "var(--fg-primary)", marginBottom: 12,
-                }}
-              >
-                Simple, Transparent Pricing
-              </h2>
-              <p style={{ fontSize: "1rem", color: "var(--fg-tertiary)" }}>
-                14-day free trial on every plan. No credit card required.
-              </p>
-            </motion.div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 20,
-                maxWidth: 1000,
-                margin: "0 auto",
-              }}
-            >
-              {plans.map((plan, idx) => (
-                <motion.div
-                  key={plan.name}
-                  variants={fadeUp}
-                  custom={idx}
-                  style={{
-                    background: plan.popular
-                      ? "linear-gradient(180deg, rgba(16,185,129,0.06) 0%, var(--surface-1) 100%)"
-                      : "var(--surface-1)",
-                    border: `1px solid ${plan.popular ? "var(--accent)" : "var(--border-default)"}`,
-                    borderRadius: 16,
-                    padding: 32,
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    position: "relative",
-                    transition: "border-color 0.2s",
-                  }}
-                >
-                  {plan.popular && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: -12,
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        padding: "4px 16px",
-                        background: "var(--accent)",
-                        color: "#fff",
-                        fontSize: "0.6875rem",
-                        fontWeight: 600,
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                        borderRadius: 9999,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Most Popular
-                    </div>
-                  )}
-
-                  <div>
-                    <h3
-                      style={{
-                        fontSize: "1.25rem", fontWeight: 600,
-                        color: "var(--fg-primary)", marginBottom: 4,
-                      }}
-                    >
-                      {plan.name}
-                    </h3>
-                    <p
-                      style={{
-                        fontSize: "0.8125rem", color: "var(--fg-quaternary)",
-                        marginBottom: 24,
-                      }}
-                    >
-                      {plan.desc}
-                    </p>
-
-                    <div
-                      style={{
-                        display: "flex", alignItems: "baseline", gap: 4,
-                        marginBottom: 28,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: "2.5rem", fontWeight: 700,
-                          letterSpacing: "-0.03em", color: "var(--fg-primary)",
-                        }}
-                      >
-                        {plan.price}
-                      </span>
-                      <span style={{ fontSize: "0.875rem", color: "var(--fg-quaternary)" }}>
-                        {plan.period}
-                      </span>
-                    </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-                      {plan.features.map((f) => (
-                        <div
-                          key={f}
-                          style={{
-                            display: "flex", alignItems: "flex-start", gap: 10,
-                            fontSize: "0.875rem", color: "var(--fg-secondary)",
-                          }}
-                        >
-                          <Check
-                            size={16}
-                            style={{
-                              color: plan.popular ? "var(--accent)" : "var(--fg-quaternary)",
-                              flexShrink: 0, marginTop: 2,
-                            }}
-                          />
-                          {f}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <Link
-                    href="/signup"
-                    className={plan.popular ? "btn-primary" : "btn-ghost"}
-                    style={{
-                      textAlign: "center",
-                      padding: "14px 16px",
-                      width: "100%",
-                      fontSize: "0.9375rem",
-                    }}
-                  >
-                    {plan.cta}
-                  </Link>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        </section>
-
-        {/* ═══ FAQ ═══════════════════════════════════════════════════════ */}
-        <section
-          id="faq"
-          style={{
-            paddingTop: 100,
-            paddingBottom: 100,
-            background: "var(--bg-panel)",
-            borderTop: "1px solid var(--border-subtle)",
-          }}
-        >
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            style={{ ...container, maxWidth: 720 }}
-          >
-            <motion.div variants={fadeUp} style={{ textAlign: "center", marginBottom: 48 }}>
-              <h2
-                style={{
-                  fontSize: "clamp(1.75rem, 4vw, 2.5rem)",
-                  fontWeight: 700, letterSpacing: "-0.03em",
-                  color: "var(--fg-primary)", marginBottom: 12,
-                }}
-              >
-                Frequently Asked Questions
-              </h2>
-            </motion.div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {faqs.map((faq, idx) => (
-                <motion.div
-                  key={faq.q}
-                  variants={fadeUp}
-                  custom={idx}
-                  onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                  style={{
-                    background: "var(--surface-1)",
-                    border: "1px solid var(--border-default)",
-                    borderRadius: 12,
-                    padding: "20px 24px",
-                    cursor: "pointer",
-                    transition: "border-color 0.2s",
-                  }}
-                  onMouseOver={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)")}
-                  onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--border-default)")}
-                >
-                  <div
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      fontSize: "0.9375rem", fontWeight: 500, color: "var(--fg-primary)",
-                    }}
-                  >
-                    <span>{faq.q}</span>
-                    <ChevronDown
-                      size={18}
-                      style={{
-                        color: "var(--fg-quaternary)",
-                        transition: "transform 0.25s ease",
-                        transform: openFaq === idx ? "rotate(180deg)" : "rotate(0deg)",
-                        flexShrink: 0,
-                        marginLeft: 16,
-                      }}
+        {/* ── Proof band ───────────────────────────────────────────
+            Deliberately tight after the airy hero. Alternating density
+            is what makes spacing read as authored rather than uniform. */}
+        <section className="scanlines border-y border-line bg-surface-1/40">
+          <div className="mx-auto max-w-6xl px-5 py-10 sm:px-8">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-4">
+              {STATS.map((stat) => (
+                <div key={stat.label}>
+                  <dt className="sr-only">{stat.label}</dt>
+                  <dd className="font-mono text-2xl font-medium tracking-[-0.03em] text-ink">
+                    <CountUp
+                      value={stat.value}
+                      decimals={stat.decimals ?? 0}
+                      suffix={stat.suffix}
                     />
-                  </div>
-                  <AnimatePresence>
-                    {openFaq === idx && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.25 }}
-                        style={{ overflow: "hidden" }}
-                      >
-                        <p
-                          style={{
-                            marginTop: 16,
-                            paddingTop: 16,
-                            borderTop: "1px solid var(--border-subtle)",
-                            fontSize: "0.875rem",
-                            color: "var(--fg-tertiary)",
-                            lineHeight: 1.7,
-                          }}
-                        >
-                          {faq.a}
-                        </p>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
+                  </dd>
+                  <p className="mt-1.5 text-2xs text-ink-4">{stat.label}</p>
+                </div>
               ))}
-            </div>
-          </motion.div>
+            </dl>
+          </div>
         </section>
 
-        {/* ═══ CTA BANNER ═══════════════════════════════════════════════ */}
-        <section
-          style={{
-            paddingTop: 100,
-            paddingBottom: 100,
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: 600,
-              height: 400,
-              background: "radial-gradient(ellipse at center, rgba(16,185,129,0.08) 0%, transparent 70%)",
-              pointerEvents: "none",
-            }}
-          />
-          <div style={{ ...container, position: "relative", zIndex: 1, textAlign: "center" }}>
-            <h2
-              style={{
-                fontSize: "clamp(1.75rem, 4vw, 2.5rem)",
-                fontWeight: 700, letterSpacing: "-0.03em",
-                color: "var(--fg-primary)", marginBottom: 16,
-              }}
-            >
-              Ready to Automate Your Reviews?
-            </h2>
-            <p
-              style={{
-                fontSize: "1rem", color: "var(--fg-tertiary)",
-                maxWidth: 480, margin: "0 auto 40px",
-              }}
-            >
-              Join hundreds of businesses that save hours every week with AI-powered review responses.
-            </p>
-            <Link
-              href="/signup"
-              className="btn-primary"
-              style={{ padding: "16px 40px", fontSize: "1rem" }}
-            >
-              Start Your Free 14-Day Trial <ArrowRight size={18} />
-            </Link>
+        {/* ── How it works ─────────────────────────────────────────
+            A numbered vertical flow, not three equal cards, so it does
+            not share a layout family with the section below it. */}
+        <section id="how" className="scroll-mt-20">
+          <div className="mx-auto max-w-6xl px-5 py-24 sm:px-8 sm:py-28">
+            <Reveal>
+              <h2 className="max-w-[16ch] text-4xl font-semibold text-ink text-balance">
+                Set it up once, then stop thinking about it.
+              </h2>
+            </Reveal>
+
+            <ol className="mt-14 flex flex-col">
+              {STEPS.map((step, index) => (
+                <Reveal as="li" key={step.title} delay={index * 70}>
+                  <div className="group grid gap-4 border-t border-line py-8 transition-colors duration-[var(--dur-base)] hover:border-line-3 sm:grid-cols-[auto_1fr_auto] sm:items-start sm:gap-8">
+                    <span
+                      data-numeric
+                      className="font-mono text-3xl font-medium leading-none tracking-[-0.04em] text-ink-4 transition-colors duration-[var(--dur-base)] group-hover:text-accent sm:w-16"
+                    >
+                      0{index + 1}
+                    </span>
+
+                    <div className="max-w-[58ch]">
+                      <h3 className="flex items-center gap-2.5 text-xl font-medium text-ink">
+                        <step.icon
+                          size={18}
+                          aria-hidden="true"
+                          className="shrink-0 text-ink-3"
+                        />
+                        {step.title}
+                      </h3>
+                      <p className="mt-2.5 text-sm leading-relaxed text-ink-3 text-pretty">
+                        {step.body}
+                      </p>
+                    </div>
+
+                    <span className="label-mono text-ink-4 sm:pt-2 sm:text-right">
+                      {step.aside}
+                    </span>
+                  </div>
+                </Reveal>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* ── What it does for you ─────────────────────────────────
+            Asymmetric bento: one wide cell carries the argument, two
+            narrow cells support it. Not a row of identical tiles. */}
+        <section className="border-t border-line bg-surface-1/20">
+          <div className="mx-auto max-w-6xl px-5 py-24 sm:px-8 sm:py-28">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Reveal className="lg:col-span-2">
+                <Spotlight className="edge-trace beam-border edge h-full rounded-xl border border-line bg-surface-1/60 p-7 backdrop-blur-md sm:p-9">
+                  <Gauge size={22} aria-hidden="true" className="text-ink-3" />
+                  <h3 className="mt-5 max-w-[22ch] text-3xl font-semibold text-ink text-balance">
+                    You see the gaps without reading every review.
+                  </h3>
+                  <p className="mt-4 max-w-[54ch] text-sm leading-relaxed text-ink-3 text-pretty">
+                    Reply rate, rating spread and the current queue sit on one
+                    screen. The normal state is not looking at it, so the
+                    exceptions need to be obvious the moment you do.
+                  </p>
+                </Spotlight>
+              </Reveal>
+
+              <div className="grid gap-4">
+                <Reveal delay={70}>
+                  <Spotlight className="edge-trace beam-border edge rounded-xl border border-line bg-surface-1/60 p-7 backdrop-blur-md">
+                    <Clock size={20} aria-hidden="true" className="text-ink-3" />
+                    <h3 className="mt-4 text-lg font-medium tracking-[-0.015em] text-ink">
+                      Timing that reads human
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-ink-3 text-pretty">
+                      A reply landing four seconds after a review is the fastest
+                      way to look automated. You set the delay.
+                    </p>
+                  </Spotlight>
+                </Reveal>
+
+                <Reveal delay={140}>
+                  <Spotlight className="edge-trace beam-border edge rounded-xl border border-line bg-surface-1/60 p-7 backdrop-blur-md">
+                    <ShieldCheck
+                      size={20}
+                      aria-hidden="true"
+                      className="text-ink-3"
+                    />
+                    <h3 className="mt-4 text-lg font-medium tracking-[-0.015em] text-ink">
+                      Access you can take back
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-ink-3 text-pretty">
+                      Read reviews and post replies for the locations you pick.
+                      Nothing else on the account is touched.
+                    </p>
+                  </Spotlight>
+                </Reveal>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Close ────────────────────────────────────────────────
+            The one place the page inverts its left-aligned rhythm, so
+            the ending reads as an ending. */}
+        <section className="relative overflow-hidden border-t border-line">
+          <div aria-hidden="true" className="absolute inset-0 accent-wash" />
+          <div className="relative mx-auto max-w-6xl px-5 py-28 text-center sm:px-8 sm:py-36">
+            <Reveal>
+              <h2 className="mx-auto max-w-[20ch] text-5xl font-semibold text-ink text-balance">
+                Start with the reviews already waiting.
+              </h2>
+              <p className="mx-auto mt-6 max-w-[48ch] text-base leading-relaxed text-ink-3 text-pretty">
+                Connect a location and ReviewMint drafts replies for your recent
+                reviews first, so you can read the voice before anything posts.
+              </p>
+              <div className="mt-10 flex justify-center">
+                <ButtonLink href={cta.href} size="lg">
+                  {cta.label}
+                  <ArrowRight size={15} aria-hidden="true" />
+                </ButtonLink>
+              </div>
+            </Reveal>
           </div>
         </section>
       </main>
 
-      {/* ═══ FOOTER ═══════════════════════════════════════════════════ */}
-      <footer
-        style={{
-          borderTop: "1px solid var(--border-subtle)",
-          padding: "40px 24px",
-        }}
-      >
-        <div
-          style={{
-            ...container,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div
-              style={{
-                width: 24, height: 24, borderRadius: 6,
-                background: "var(--accent)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
-              <MessageSquareText size={13} color="#fff" />
-            </div>
-            <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--fg-primary)" }}>
-              ReviewMint
-            </span>
-          </div>
-          <p style={{ fontSize: "0.75rem", color: "var(--fg-quaternary)" }}>
-            &copy; {new Date().getFullYear()} ReviewMint. All rights reserved.
+      <footer className="border-t border-line">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <Wordmark size={22} />
+          <p className="max-w-[52ch] text-2xs leading-relaxed text-ink-4">
+            ReviewMint is not affiliated with Google. Google Business Profile is
+            a trademark of Google LLC.
           </p>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

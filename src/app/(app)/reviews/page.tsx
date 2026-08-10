@@ -1,48 +1,77 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { motion } from "framer-motion";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  Star,
-  Bot,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  RefreshCw,
-  Filter,
-  Sparkles,
-  MessageSquareText,
-  ArrowRight,
-  Loader2,
-} from "lucide-react";
-import Link from "next/link";
-import type { Review } from "@/types";
-import { timeAgo, getInitials } from "@/lib/utils/helpers";
+import { ArrowClockwise, ChatTeardropText } from "@phosphor-icons/react";
+import { createClient } from "@/lib/supabase/client";
+import { Button, ButtonLink } from "@/components/ui/button";
+import { Panel } from "@/components/ui/panel";
+import { PageHeader } from "@/components/ui/page-header";
+import { Segmented } from "@/components/ui/controls";
+import { EmptyState } from "@/components/ui/states";
+import { ReviewRow, ReviewRowSkeleton } from "@/components/review-row";
+import type { Review, ReviewStatus } from "@/types";
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 20 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.05, duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
-  }),
+type Filter = "all" | "pending" | "posted" | "failed";
+
+const FILTER_STATUS: Record<Exclude<Filter, "all">, ReviewStatus[]> = {
+  pending: ["pending", "generating", "generated", "posting"],
+  posted: ["posted"],
+  failed: ["failed"],
 };
 
-type FilterType = "all" | "pending" | "posted" | "failed";
+const EMPTY_COPY: Record<Filter, { title: string; description: string }> = {
+  all: {
+    title: "No reviews yet",
+    description:
+      "Once a location is connected, new Google reviews appear here within minutes of being posted.",
+  },
+  pending: {
+    title: "Nothing waiting",
+    description:
+      "Every review has been answered. New ones will queue here as they arrive.",
+  },
+  posted: {
+    title: "No replies posted yet",
+    description:
+      "Replies show up here the moment they go live on your Google Business Profile.",
+  },
+  failed: {
+    title: "No failures",
+    description:
+      "Nothing has failed to post. If a reply ever does, it will be listed here with the reason.",
+  },
+};
+
+const EMPTY_COUNTS: Record<Filter, number> = {
+  all: 0,
+  pending: 0,
+  posted: 0,
+  failed: 0,
+};
 
 export default function ReviewsPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [counts, setCounts] = useState<Record<Filter, number>>(EMPTY_COUNTS);
+  const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<FilterType>("all");
+  const [refreshing, setRefreshing] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const supabase = createClient();
 
-  async function loadReviews() {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  /**
+   * Pure fetcher: reads the filtered page plus the status tallies and
+   * returns them. It writes no state, so callers decide what a load means
+   * for the loading and refreshing flags.
+   */
+  const fetchReviews = useCallback(async (target: Filter) => {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { rows: [] as Review[], counts: EMPTY_COUNTS };
+    }
 
     let query = supabase
       .from("reviews")
@@ -51,18 +80,63 @@ export default function ReviewsPage() {
       .order("review_created_at", { ascending: false })
       .range(0, 49);
 
-    if (filter === "pending") query = query.in("reply_status", ["pending", "generating"]);
-    else if (filter === "posted") query = query.eq("reply_status", "posted");
-    else if (filter === "failed") query = query.eq("reply_status", "failed");
+    if (target !== "all") {
+      query = query.in("reply_status", FILTER_STATUS[target]);
+    }
 
-    const { data } = await query;
-    if (data) setReviews(data as Review[]);
-    setLoading(false);
+    const [{ data: rows }, { data: all }] = await Promise.all([
+      query,
+      supabase.from("reviews").select("reply_status").eq("user_id", user.id),
+    ]);
+
+    const statuses = (all ?? []) as { reply_status: ReviewStatus }[];
+
+    return {
+      rows: (rows as Review[]) ?? [],
+      counts: {
+        all: statuses.length,
+        pending: statuses.filter((r) =>
+          FILTER_STATUS.pending.includes(r.reply_status)
+        ).length,
+        posted: statuses.filter((r) => r.reply_status === "posted").length,
+        failed: statuses.filter((r) => r.reply_status === "failed").length,
+      },
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const { rows, counts: tallies } = await fetchReviews(filter);
+      if (cancelled) return;
+      setReviews(rows);
+      setCounts(tallies);
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, fetchReviews]);
+
+  // Loading is raised on the interaction that causes it, not in the effect
+  // that reacts to it.
+  function selectFilter(next: Filter) {
+    if (next === filter) return;
+    setLoading(true);
+    setFilter(next);
   }
 
-  useEffect(() => { loadReviews(); }, [filter]);
+  async function refresh() {
+    setRefreshing(true);
+    const { rows, counts: tallies } = await fetchReviews(filter);
+    setReviews(rows);
+    setCounts(tallies);
+    setRefreshing(false);
+  }
 
-  async function handleGenerateReply(reviewId: string) {
+  async function generateReply(reviewId: string) {
     setGeneratingId(reviewId);
     try {
       const response = await fetch("/api/reviews/generate", {
@@ -70,196 +144,102 @@ export default function ReviewsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reviewId }),
       });
+      const result = await response.json();
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to generate reply");
+        throw new Error(result?.error ?? "The reply could not be generated.");
       }
 
-      const data = await response.json();
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === reviewId
-            ? { ...r, ai_reply: data.reply, reply_status: "generated" as const, sentiment: data.sentiment }
-            : r
+      setReviews((current) =>
+        current.map((review) =>
+          review.id === reviewId
+            ? {
+                ...review,
+                ai_reply: result.reply,
+                sentiment: result.sentiment,
+                reply_status: "generated" as ReviewStatus,
+              }
+            : review
         )
       );
-      toast.success("AI reply generated!");
+      toast.success("Reply written. It posts on the next sync.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to generate reply");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The reply could not be generated. Try again in a moment."
+      );
     } finally {
       setGeneratingId(null);
     }
   }
 
-  const filters: { key: FilterType; label: string; count?: number }[] = [
-    { key: "all", label: "All", count: reviews.length },
-    { key: "pending", label: "Pending" },
-    { key: "posted", label: "Posted" },
-    { key: "failed", label: "Failed" },
-  ];
-
-  const statusConfig: Record<string, { icon: typeof Clock; label: string; className: string }> = {
-    pending: { icon: Clock, label: "Pending", className: "status-pending" },
-    generating: { icon: Loader2, label: "Generating...", className: "status-generated" },
-    generated: { icon: Sparkles, label: "Generated", className: "status-generated" },
-    posting: { icon: RefreshCw, label: "Posting...", className: "status-generated" },
-    posted: { icon: CheckCircle2, label: "Posted", className: "status-posted" },
-    failed: { icon: AlertTriangle, label: "Failed", className: "status-failed" },
-    skipped: { icon: Clock, label: "Skipped", className: "status-pending" },
-  };
-
   return (
-    <div>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
-        <div>
-          <h1 className="heading-section" style={{ fontSize: "1.75rem", marginBottom: "0.25rem" }}>Reviews</h1>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.9375rem" }}>Manage your Google reviews and AI replies</p>
-        </div>
-        <button onClick={loadReviews} className="btn-ghost" style={{ gap: "0.375rem" }}>
-          <RefreshCw size={15} /> Refresh
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        {filters.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            style={{
-              padding: "0.4375rem 0.875rem",
-              borderRadius: "999px",
-              fontSize: "0.8125rem",
-              fontWeight: filter === f.key ? 600 : 400,
-              background: filter === f.key ? "var(--primary-glow)" : "var(--glass)",
-              color: filter === f.key ? "var(--primary)" : "var(--text-secondary)",
-              border: `1px solid ${filter === f.key ? "rgba(34,197,94,0.3)" : "var(--border)"}`,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
+    <div className="space-y-6">
+      <PageHeader
+        title="Reviews"
+        description="Every review pulled from your connected locations, newest first."
+        action={
+          <Button
+            variant="secondary"
+            onClick={refresh}
+            loading={refreshing}
+            loadingLabel="Refreshing…"
           >
-            {f.label}
-          </button>
-        ))}
-      </div>
+            {!refreshing && <ArrowClockwise size={14} aria-hidden="true" />}
+            Refresh
+          </Button>
+        }
+      />
 
-      {/* Review List */}
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="animate-shimmer" style={{ height: "120px", borderRadius: "var(--radius-lg)" }} />
-          ))}
-        </div>
-      ) : reviews.length === 0 ? (
-        <div className="glass-card" style={{ padding: "3rem 2rem", textAlign: "center" }}>
-          <div style={{ width: "64px", height: "64px", borderRadius: "16px", background: "var(--primary-glow)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
-            <MessageSquareText size={28} style={{ color: "var(--primary)" }} />
+      <Segmented
+        label="Filter reviews by reply status"
+        value={filter}
+        onChange={selectFilter}
+        options={[
+          { value: "all", label: "All", count: counts.all },
+          { value: "pending", label: "Waiting", count: counts.pending },
+          { value: "posted", label: "Posted", count: counts.posted },
+          { value: "failed", label: "Failed", count: counts.failed },
+        ]}
+      />
+
+      <Panel>
+        {loading ? (
+          <div className="divide-y divide-line">
+            {[0, 1, 2, 3].map((row) => (
+              <ReviewRowSkeleton key={row} />
+            ))}
           </div>
-          <h3 className="heading-section" style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>
-            {filter === "all" ? "No Reviews Yet" : `No ${filter} reviews`}
-          </h3>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.9375rem", maxWidth: "400px", margin: "0 auto 1.5rem" }}>
-            {filter === "all"
-              ? "Connect your Google Business Profile to start receiving and replying to reviews."
-              : "Try changing the filter to see more reviews."}
-          </p>
-          {filter === "all" && (
-            <Link href="/connections" className="btn-primary">
-              Connect Google Profile <ArrowRight size={16} />
-            </Link>
-          )}
-        </div>
-      ) : (
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
-          style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}
-        >
-          {reviews.map((review, i) => {
-            const status = statusConfig[review.reply_status] || statusConfig.pending;
-            const StatusIcon = status.icon;
+        ) : reviews.length === 0 ? (
+          <EmptyState
+            icon={<ChatTeardropText size={19} aria-hidden="true" />}
+            title={EMPTY_COPY[filter].title}
+            description={EMPTY_COPY[filter].description}
+            action={
+              filter === "all" && counts.all === 0 ? (
+                <ButtonLink href="/connections">Connect a location</ButtonLink>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="divide-y divide-line">
+            {reviews.map((review) => (
+              <ReviewRow
+                key={review.id}
+                review={review}
+                onGenerate={generateReply}
+                generating={generatingId === review.id}
+              />
+            ))}
+          </div>
+        )}
+      </Panel>
 
-            return (
-              <motion.div key={review.id} variants={fadeUp} custom={i} className="glass-card" style={{ padding: "1.25rem" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem" }}>
-                  <div style={{
-                    width: "40px", height: "40px", borderRadius: "50%", flexShrink: 0,
-                    background: `linear-gradient(135deg, hsl(${(review.reviewer_name.charCodeAt(0) * 47) % 360}, 60%, 50%), hsl(${(review.reviewer_name.charCodeAt(0) * 47 + 30) % 360}, 60%, 40%))`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "0.8125rem", fontWeight: 700, color: "#fff",
-                  }}>
-                    {getInitials(review.reviewer_name)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.375rem", marginBottom: "0.375rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.9375rem" }}>{review.reviewer_name}</span>
-                        <div style={{ display: "flex", gap: "1px" }}>
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <Star key={s} size={13} fill={s <= review.star_rating ? "#fbbf24" : "transparent"} color={s <= review.star_rating ? "#fbbf24" : "var(--text-muted)"} />
-                          ))}
-                        </div>
-                        {review.sentiment && (
-                          <span className={`sentiment-${review.sentiment}`} style={{ padding: "0.125rem 0.5rem", borderRadius: "999px", fontSize: "0.6875rem", fontWeight: 500 }}>
-                            {review.sentiment}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <div className={status.className} style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem", padding: "0.1875rem 0.5rem", borderRadius: "999px", fontSize: "0.6875rem", fontWeight: 500 }}>
-                          <StatusIcon size={11} />
-                          {status.label}
-                        </div>
-                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                          {timeAgo(review.review_created_at)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {review.review_text ? (
-                      <p style={{ fontSize: "0.9375rem", color: "var(--text-secondary)", lineHeight: 1.6, marginBottom: "0.75rem" }}>
-                        &ldquo;{review.review_text}&rdquo;
-                      </p>
-                    ) : (
-                      <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", fontStyle: "italic", marginBottom: "0.75rem" }}>
-                        ★ Star-only review (no text)
-                      </p>
-                    )}
-
-                    {review.ai_reply && (
-                      <div style={{ background: "rgba(34, 197, 94, 0.05)", borderLeft: "3px solid var(--primary)", borderRadius: "0 8px 8px 0", padding: "0.75rem 1rem" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.25rem", fontSize: "0.6875rem", color: "var(--primary)", fontWeight: 600 }}>
-                          <Bot size={12} /> AI Reply
-                        </div>
-                        <p style={{ fontSize: "0.875rem", color: "var(--text-primary)", lineHeight: 1.6 }}>
-                          {review.ai_reply}
-                        </p>
-                      </div>
-                    )}
-
-                    {(review.reply_status === "pending" || review.reply_status === "failed") && !review.ai_reply && (
-                      <button
-                        onClick={() => handleGenerateReply(review.id)}
-                        disabled={generatingId === review.id}
-                        className="btn-primary"
-                        style={{ marginTop: "0.5rem", padding: "0.4375rem 1rem", fontSize: "0.8125rem" }}
-                      >
-                        {generatingId === review.id ? (
-                          <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Generating...</>
-                        ) : (
-                          <><Sparkles size={14} /> Generate AI Reply</>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </motion.div>
+      {!loading && reviews.length >= 50 && (
+        <p className="text-center text-xs text-ink-4">
+          Showing the 50 most recent reviews.
+        </p>
       )}
     </div>
   );

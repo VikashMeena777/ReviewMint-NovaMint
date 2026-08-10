@@ -1,29 +1,32 @@
-import type { Metadata } from "next";
-import { Outfit, JetBrains_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import "@/styles/globals.css";
 
-const body = Outfit({
+const sans = Geist({
   subsets: ["latin"],
-  variable: "--font-body",
+  variable: "--font-geist",
   display: "swap",
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const mono = JetBrains_Mono({
+const mono = Geist_Mono({
   subsets: ["latin"],
-  variable: "--font-mono",
+  variable: "--font-geist-mono",
   display: "swap",
   weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ?? "https://reviewmint.app"
+  ),
   title: {
-    default: "ReviewMint — AI-Powered Google Review Auto-Responder",
+    default: "ReviewMint. Every Google review answered, automatically.",
     template: "%s | ReviewMint",
   },
   description:
-    "Automatically respond to every Google review with AI-crafted, personalized replies. Manage your online reputation effortlessly. Free 14-day trial.",
+    "ReviewMint watches your Google Business Profile and replies to every review in your own voice, within minutes. Built for Indian local businesses.",
   keywords: [
     "Google review auto responder",
     "AI review management",
@@ -32,11 +35,17 @@ export const metadata: Metadata = {
     "automated review replies",
   ],
   openGraph: {
-    title: "ReviewMint — AI-Powered Google Review Auto-Responder",
+    title: "ReviewMint. Every Google review answered, automatically.",
     description:
-      "Automatically respond to every Google review with AI. Manage your reputation effortlessly.",
+      "Replies to every Google review in your own voice, within minutes. Built for Indian local businesses.",
     type: "website",
+    siteName: "ReviewMint",
   },
+};
+
+export const viewport: Viewport = {
+  colorScheme: "dark",
+  themeColor: "#0a0b0d",
 };
 
 export default function RootLayout({
@@ -45,20 +54,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${body.variable} ${mono.variable} antialiased`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+      <body>
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-md focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-ink"
+        >
+          Skip to content
+        </a>
         {children}
         <Toaster
           position="bottom-right"
+          gap={10}
           toastOptions={{
             style: {
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--fg-primary)",
+              background: "var(--color-surface-3)",
+              border: "1px solid var(--color-line-2)",
+              borderRadius: "10px",
+              color: "var(--color-ink)",
               fontSize: "0.8125rem",
+              fontFamily: "var(--font-sans)",
+              boxShadow: "var(--shadow-lg)",
             },
           }}
-          richColors
           closeButton
         />
       </body>

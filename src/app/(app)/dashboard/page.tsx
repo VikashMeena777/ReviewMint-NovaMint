@@ -1,47 +1,38 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { motion } from "framer-motion";
-import {
-  Star,
-  MessageSquareText,
-  TrendingUp,
-  Clock,
-  AlertTriangle,
-  Bot,
-  ArrowRight,
-  Sparkles,
-} from "lucide-react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  ChatTeardropText,
+  Clock,
+  PlugsConnected,
+  Star,
+  TrendUp,
+} from "@phosphor-icons/react";
+import { createClient } from "@/lib/supabase/client";
+import { formatNumber } from "@/lib/utils/helpers";
+import { cn } from "@/lib/utils/cn";
+import { ButtonLink } from "@/components/ui/button";
+import { Panel, PanelHeader } from "@/components/ui/panel";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState, Skeleton } from "@/components/ui/states";
+import { ReviewRow, ReviewRowSkeleton } from "@/components/review-row";
+import { RatingBars, ReplyTrend } from "@/components/charts";
 import type { Review } from "@/types";
-import { timeAgo, getInitials } from "@/lib/utils/helpers";
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: i * 0.06,
-      duration: 0.4,
-      ease: [0.2, 0, 0, 1] as const,
-    },
-  }),
-};
-
-const stagger = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.06 } },
-};
+/** Rolling window used for the reply-volume trend. */
+const TREND_DAYS = 14;
 
 export default function DashboardPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
 
   useEffect(() => {
-    async function loadData() {
+    const supabase = createClient();
+    let cancelled = false;
+
+    (async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -52,462 +43,267 @@ export default function DashboardPage() {
         .select("*")
         .eq("user_id", user.id)
         .order("review_created_at", { ascending: false })
-        .range(0, 19);
+        .range(0, 199);
 
-      if (data) setReviews(data as Review[]);
-      setLoading(false);
-    }
-    loadData();
-  }, [supabase]);
+      if (!cancelled) {
+        setReviews((data as Review[]) ?? []);
+        setLoading(false);
+      }
+    })();
 
-  const totalReviews = reviews.length;
-  const avgRating =
-    totalReviews > 0
-      ? (
-          reviews.reduce((s, r) => s + r.star_rating, 0) / totalReviews
-        ).toFixed(1)
-      : "0.0";
-  const repliedCount = reviews.filter(
-    (r) => r.reply_status === "posted"
-  ).length;
-  const responseRate =
-    totalReviews > 0
-      ? Math.round((repliedCount / totalReviews) * 100)
-      : 0;
-  const pendingCount = reviews.filter(
-    (r) => r.reply_status === "pending" || r.reply_status === "generating"
-  ).length;
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const stats = [
-    {
-      label: "Total Reviews",
-      value: totalReviews,
-      icon: MessageSquareText,
-      accent: "var(--accent)",
-      bg: "var(--accent-muted)",
-    },
-    {
-      label: "Average Rating",
-      value: avgRating,
-      icon: Star,
-      accent: "#fbbf24",
-      bg: "rgba(251, 191, 36, 0.08)",
-    },
-    {
-      label: "Response Rate",
-      value: `${responseRate}%`,
-      icon: TrendingUp,
-      accent: "var(--accent)",
-      bg: "var(--accent-muted)",
-    },
-    {
-      label: "Pending Replies",
-      value: pendingCount,
-      icon: Clock,
-      accent: "var(--warning)",
-      bg: "rgba(245, 158, 11, 0.08)",
-    },
-  ];
+  const stats = useMemo(() => {
+    const total = reviews.length;
+    const replied = reviews.filter((r) => r.reply_status === "posted").length;
+    const pending = reviews.filter(
+      (r) => r.reply_status === "pending" || r.reply_status === "generated"
+    ).length;
+    const ratingSum = reviews.reduce((sum, r) => sum + r.star_rating, 0);
+
+    const distribution = [5, 4, 3, 2, 1].map((star) => ({
+      star,
+      count: reviews.filter((r) => r.star_rating === star).length,
+    }));
+
+    // Bucket posted replies by day for the trend line.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const trend = Array.from({ length: TREND_DAYS }, (_, index) => {
+      const day = new Date(today);
+      day.setDate(day.getDate() - (TREND_DAYS - 1 - index));
+      const next = new Date(day);
+      next.setDate(next.getDate() + 1);
+
+      return {
+        date: day.toISOString(),
+        replies: reviews.filter((r) => {
+          if (!r.reply_posted_at) return false;
+          const posted = new Date(r.reply_posted_at).getTime();
+          return posted >= day.getTime() && posted < next.getTime();
+        }).length,
+      };
+    });
+
+    return {
+      total,
+      replied,
+      pending,
+      average: total ? ratingSum / total : 0,
+      responseRate: total ? Math.round((replied / total) * 100) : 0,
+      distribution,
+      trend,
+    };
+  }, [reviews]);
+
+  const recent = reviews.slice(0, 6);
+  const hasTrend = stats.trend.some((point) => point.replies > 0);
 
   return (
-    <motion.div initial="hidden" animate="visible" variants={stagger}>
-      {/* Header */}
-      <motion.div variants={fadeUp} custom={0} style={{ marginBottom: "2rem" }}>
-        <h1
-          style={{
-            fontSize: "1.5rem",
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
-            color: "var(--fg-primary)",
-            marginBottom: "0.25rem",
-          }}
-        >
-          Dashboard
-        </h1>
-        <p
-          style={{
-            color: "var(--fg-tertiary)",
-            fontSize: "0.875rem",
-          }}
-        >
-          Your review management overview
-        </p>
-      </motion.div>
+    <div className="space-y-7">
+      <PageHeader
+        title="Overview"
+        description="Reply coverage across every location you have connected."
+        action={
+          <ButtonLink href="/reviews" variant="secondary">
+            All reviews
+            <ArrowRight size={14} aria-hidden="true" />
+          </ButtonLink>
+        }
+      />
 
-      {/* Stats Grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "0.75rem",
-          marginBottom: "2rem",
-        }}
-      >
-        {stats.map((stat, i) => (
-          <motion.div
-            key={i}
-            variants={fadeUp}
-            custom={i + 1}
-            className="card"
-            style={{ padding: "1.25rem" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "0.75rem",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "0.75rem",
-                  fontWeight: 500,
-                  color: "var(--fg-quaternary)",
-                  letterSpacing: "0.02em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {stat.label}
-              </span>
-              <div
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: "var(--radius-md)",
-                  background: stat.bg,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <stat.icon size={16} style={{ color: stat.accent }} />
-              </div>
-            </div>
-            <div
-              style={{
-                fontSize: "1.75rem",
-                fontWeight: 600,
-                letterSpacing: "-0.02em",
-                color: "var(--fg-primary)",
-                fontFamily: "var(--font-mono), monospace",
-              }}
-            >
+      {/* Metrics. Reply rate is the number this product exists to move, so
+          it wins the hierarchy outright and the rest read as supporting
+          context. Four equal tiles would say nothing is important. */}
+      <Panel className="beam-border overflow-hidden">
+        <dl className="grid lg:grid-cols-[1.1fr_1.4fr]">
+          <div className="border-b border-line px-6 py-6 lg:border-b-0 lg:border-r">
+            <dt className="label-caps flex items-center gap-1.5 text-ink-4">
+              <TrendUp size={13} aria-hidden="true" className="text-accent" />
+              Reply rate
+            </dt>
+            <dd className="mt-3 flex items-baseline gap-2.5">
               {loading ? (
-                <div
-                  style={{
-                    width: 60,
-                    height: 28,
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--surface-2)",
-                  }}
-                  className="animate-pulse"
-                />
+                <Skeleton className="h-12 w-28" />
               ) : (
-                stat.value
+                <>
+                  <span
+                    data-numeric
+                    className="font-mono text-5xl font-medium leading-none tracking-[-0.04em] text-ink"
+                  >
+                    {stats.responseRate}
+                    <span className="text-2xl text-ink-4">%</span>
+                  </span>
+                  <span className="text-xs text-ink-4">
+                    {formatNumber(stats.replied)} of {formatNumber(stats.total)}
+                  </span>
+                </>
               )}
-            </div>
-          </motion.div>
-        ))}
+            </dd>
+            {!loading && (
+              <div
+                aria-hidden="true"
+                className="mt-4 h-1 overflow-hidden rounded-full bg-surface-3"
+              >
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-out-expo)]"
+                  style={{ width: `${stats.responseRate}%` }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 divide-x divide-line">
+            <Metric
+              label="Reviews"
+              value={formatNumber(stats.total)}
+              icon={<ChatTeardropText size={13} aria-hidden="true" />}
+              loading={loading}
+            />
+            <Metric
+              label="Rating"
+              value={stats.total ? stats.average.toFixed(2) : "0.00"}
+              icon={<Star size={13} weight="fill" aria-hidden="true" />}
+              accent="star"
+              loading={loading}
+            />
+            <Metric
+              label="In queue"
+              value={formatNumber(stats.pending)}
+              icon={<Clock size={13} aria-hidden="true" />}
+              accent={stats.pending > 0 ? "caution" : undefined}
+              loading={loading}
+            />
+          </div>
+        </dl>
+      </Panel>
+
+      {/* Charts. Trend gets the wider column because it carries the story. */}
+      <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <Panel>
+          <PanelHeader
+            title="Replies posted"
+            description={`Last ${TREND_DAYS} days`}
+          />
+          <div className="p-5 pt-4">
+            {loading ? (
+              <Skeleton className="h-[168px] w-full rounded-md" />
+            ) : hasTrend ? (
+              <ReplyTrend data={stats.trend} />
+            ) : (
+              <p className="grid h-[168px] place-items-center text-xs text-ink-4">
+                No replies posted in this window yet.
+              </p>
+            )}
+          </div>
+        </Panel>
+
+        <Panel>
+          <PanelHeader title="Rating spread" description="All time" />
+          <div className="p-5 pt-4">
+            {loading ? (
+              <div className="space-y-3">
+                {[0, 1, 2, 3, 4].map((row) => (
+                  <Skeleton key={row} className="h-5 w-full" />
+                ))}
+              </div>
+            ) : stats.total ? (
+              <RatingBars data={stats.distribution} total={stats.total} />
+            ) : (
+              <p className="grid h-[168px] place-items-center text-xs text-ink-4">
+                Nothing to chart yet.
+              </p>
+            )}
+          </div>
+        </Panel>
       </div>
 
-      {/* Recent Reviews */}
-      <motion.div variants={fadeUp} custom={5}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "1rem",
-          }}
-        >
-          <h2
-            style={{
-              fontSize: "1.125rem",
-              fontWeight: 600,
-              letterSpacing: "-0.01em",
-              color: "var(--fg-primary)",
-            }}
-          >
-            Recent Reviews
-          </h2>
-          {reviews.length > 0 && (
+      <Panel>
+        <PanelHeader
+          title="Latest reviews"
+          description="Newest first, with the reply that went out."
+          action={
             <Link
               href="/reviews"
-              className="btn-ghost"
-              style={{
-                fontSize: "0.8125rem",
-                padding: "0.375rem 0.75rem",
-              }}
+              className="text-xs font-medium text-ink-3 transition-colors duration-[var(--dur-fast)] hover:text-accent"
             >
               View all
-              <ArrowRight size={14} />
             </Link>
-          )}
-        </div>
+          }
+        />
 
         {loading ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.5rem",
-            }}
-          >
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="card animate-pulse"
-                style={{ height: 88, padding: 0 }}
-              />
+          <div className="divide-y divide-line">
+            {[0, 1, 2].map((row) => (
+              <ReviewRowSkeleton key={row} />
             ))}
           </div>
-        ) : reviews.length === 0 ? (
-          /* Empty State */
-          <div
-            className="card"
-            style={{
-              padding: "3rem 2rem",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "var(--radius-lg)",
-                background: "var(--accent-muted)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 1.25rem",
-              }}
-            >
-              <Sparkles size={24} style={{ color: "var(--accent)" }} />
-            </div>
-            <h3
-              style={{
-                fontSize: "1.125rem",
-                fontWeight: 600,
-                color: "var(--fg-primary)",
-                marginBottom: "0.375rem",
-              }}
-            >
-              No Reviews Yet
-            </h3>
-            <p
-              style={{
-                color: "var(--fg-tertiary)",
-                fontSize: "0.875rem",
-                maxWidth: 400,
-                margin: "0 auto 1.5rem",
-                lineHeight: 1.6,
-              }}
-            >
-              Connect your Google Business Profile to start auto-responding to
-              reviews with AI.
-            </p>
-            <Link href="/connections" className="btn-primary">
-              Connect Google Profile
-              <ArrowRight size={15} />
-            </Link>
-          </div>
+        ) : recent.length === 0 ? (
+          <EmptyState
+            icon={<PlugsConnected size={19} aria-hidden="true" />}
+            title="No reviews yet"
+            description="Connect a Google Business Profile location and ReviewMint starts pulling reviews within a few minutes."
+            action={
+              <ButtonLink href="/connections">
+                Connect a location
+                <ArrowRight size={14} aria-hidden="true" />
+              </ButtonLink>
+            }
+          />
         ) : (
-          /* Review List */
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.5rem",
-            }}
-          >
-            {reviews.slice(0, 5).map((review, i) => (
-              <motion.div
-                key={review.id}
-                variants={fadeUp}
-                custom={6 + i}
-                className="card"
-                style={{ padding: "1.25rem" }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "0.75rem",
-                  }}
-                >
-                  {/* Avatar */}
-                  <div
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                      background: "var(--surface-3)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "0.6875rem",
-                      fontWeight: 600,
-                      color: "var(--fg-primary)",
-                    }}
-                  >
-                    {getInitials(review.reviewer_name)}
-                  </div>
-
-                  {/* Content */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: "0.25rem",
-                        flexWrap: "wrap",
-                        gap: "0.375rem",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.5rem",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontWeight: 500,
-                            fontSize: "0.875rem",
-                            color: "var(--fg-primary)",
-                          }}
-                        >
-                          {review.reviewer_name}
-                        </span>
-                        <div style={{ display: "flex", gap: "1px" }}>
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <Star
-                              key={s}
-                              size={11}
-                              fill={
-                                s <= review.star_rating
-                                  ? "#fbbf24"
-                                  : "transparent"
-                              }
-                              color={
-                                s <= review.star_rating
-                                  ? "#fbbf24"
-                                  : "var(--fg-quaternary)"
-                              }
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          fontSize: "0.6875rem",
-                          color: "var(--fg-quaternary)",
-                        }}
-                      >
-                        {timeAgo(review.review_created_at)}
-                      </span>
-                    </div>
-
-                    {review.review_text && (
-                      <p
-                        style={{
-                          fontSize: "0.8125rem",
-                          color: "var(--fg-secondary)",
-                          lineHeight: 1.6,
-                          marginBottom: review.ai_reply ? "0.75rem" : 0,
-                        }}
-                      >
-                        {review.review_text}
-                      </p>
-                    )}
-
-                    {review.ai_reply && (
-                      <div
-                        style={{
-                          background: "var(--accent-subtle)",
-                          borderLeft: "2px solid var(--accent)",
-                          borderRadius: "0 var(--radius-md) var(--radius-md) 0",
-                          padding: "0.625rem 0.75rem",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.25rem",
-                            marginBottom: "0.25rem",
-                            fontSize: "0.6875rem",
-                            color: "var(--accent)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          <Bot size={11} />
-                          {review.reply_status === "posted"
-                            ? "AI Reply • Posted"
-                            : "AI Reply • Pending"}
-                        </div>
-                        <p
-                          style={{
-                            fontSize: "0.8125rem",
-                            color: "var(--fg-secondary)",
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {review.ai_reply}
-                        </p>
-                      </div>
-                    )}
-
-                    {review.reply_status === "pending" && !review.ai_reply && (
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "0.25rem",
-                          marginTop: "0.5rem",
-                          padding: "0.125rem 0.5rem",
-                          borderRadius: "var(--radius-pill)",
-                          background: "rgba(245, 158, 11, 0.08)",
-                          fontSize: "0.6875rem",
-                          fontWeight: 500,
-                          color: "var(--warning)",
-                        }}
-                      >
-                        <Clock size={11} />
-                        Pending AI reply
-                      </div>
-                    )}
-
-                    {review.reply_status === "failed" && (
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "0.25rem",
-                          marginTop: "0.5rem",
-                          padding: "0.125rem 0.5rem",
-                          borderRadius: "var(--radius-pill)",
-                          background: "rgba(239, 68, 68, 0.08)",
-                          fontSize: "0.6875rem",
-                          fontWeight: 500,
-                          color: "var(--error)",
-                        }}
-                      >
-                        <AlertTriangle size={11} />
-                        Reply failed
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
+          <div className="divide-y divide-line">
+            {recent.map((review) => (
+              <ReviewRow key={review.id} review={review} />
             ))}
           </div>
         )}
-      </motion.div>
-    </motion.div>
+      </Panel>
+    </div>
+  );
+}
+
+const ACCENTS = {
+  accent: "text-accent",
+  star: "text-star",
+  caution: "text-caution",
+} as const;
+
+function Metric({
+  label,
+  value,
+  icon,
+  accent,
+  loading,
+  className,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  accent?: keyof typeof ACCENTS;
+  loading: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={cn("px-4 py-6 sm:px-5", className)}>
+      <dt className="label-caps flex items-center gap-1.5 text-ink-4">
+        <span className={accent ? ACCENTS[accent] : "text-ink-4"}>{icon}</span>
+        <span className="truncate">{label}</span>
+      </dt>
+      <dd className="mt-3">
+        {loading ? (
+          <Skeleton className="h-6 w-12" />
+        ) : (
+          <span
+            data-numeric
+            className="font-mono text-xl font-medium tracking-[-0.03em] text-ink-2"
+          >
+            {value}
+          </span>
+        )}
+      </dd>
+    </div>
   );
 }
