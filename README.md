@@ -2,6 +2,13 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Set up cron-job.org:
+
+URL: https://reviewmint.novamintnetworks.in/api/cron/send-scheduled
+Schedule: Every 5 min
+Header: Authorization: Bearer 0zY6baoYJLLbEigGrvcFs9II
+
+
 First, run the development server:
 
 ```bash
