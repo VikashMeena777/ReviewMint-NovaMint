@@ -55,6 +55,8 @@ export async function GET(request: Request) {
     let locationId = null;
     let locationName = null;
     let locationAddress = null;
+    let placeId = null;
+    let reviewUrl = null;
 
     try {
       const accountsResponse = await fetch(
@@ -87,6 +89,23 @@ export async function GET(request: Request) {
                   .filter(Boolean)
                   .join(", ");
               }
+
+              // Fetch place_id from location metadata
+              try {
+                const metaResponse = await fetch(
+                  `https://mybusinessbusinessinformation.googleapis.com/v1/${location.name}?readMask=metadata`,
+                  { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+                );
+                if (metaResponse.ok) {
+                  const metaData = await metaResponse.json();
+                  if (metaData.metadata?.placeId) {
+                    placeId = metaData.metadata.placeId;
+                    reviewUrl = `https://search.google.com/local/reviews/writereview?placeid=${placeId}`;
+                  }
+                }
+              } catch (metaErr) {
+                console.error("[Google OAuth] Place ID fetch (non-fatal):", metaErr);
+              }
             }
           }
         }
@@ -115,6 +134,8 @@ export async function GET(request: Request) {
       location_id: locationId,
       location_name: locationName,
       location_address: locationAddress,
+      place_id: placeId,
+      review_url: reviewUrl,
       is_active: true,
     });
 

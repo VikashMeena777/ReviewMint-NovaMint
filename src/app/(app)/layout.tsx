@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ChartBar,
   ChatTeardropText,
+  PaperPlaneTilt,
+  CurrencyInr,
   PlugsConnected,
   SlidersHorizontal,
   SignOut,
@@ -23,6 +25,8 @@ import type { Profile } from "@/types";
 const NAV = [
   { href: "/dashboard", label: "Overview", icon: ChartBar },
   { href: "/reviews", label: "Reviews", icon: ChatTeardropText },
+  { href: "/campaigns", label: "Campaigns", icon: PaperPlaneTilt },
+  { href: "/wallet", label: "Wallet", icon: CurrencyInr },
   { href: "/connections", label: "Locations", icon: PlugsConnected },
   { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ] as const;
