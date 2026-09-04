@@ -3,7 +3,7 @@
 // Adapted from AssistMint's battle-tested client
 // ============================================
 
-const WHATSAPP_API_URL = 'https://graph.facebook.com/v25.0';
+const WHATSAPP_API_URL = 'https://graph.facebook.com/v26.0';
 
 export function sanitizeWhatsAppNumber(phone: string): string {
   let clean = phone.trim().replace(/\D/g, '');

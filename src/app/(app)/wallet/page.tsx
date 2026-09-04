@@ -42,6 +42,8 @@ export default function WalletPage() {
   const [packages, setPackages] = useState<CreditPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState<number | null>(null);
+  const [customCredits, setCustomCredits] = useState(10);
+  const customPricePerCredit = 1.5;
 
   // ─── Load Data ────────────────────────────
 
@@ -241,6 +243,65 @@ export default function WalletPage() {
             </div>
           ))}
         </div>
+      </Panel>
+
+      {/* Custom Credits */}
+      <Panel>
+        <PanelHeader
+          title="Custom Credits"
+          description="Buy exactly the amount you need — from 1 to 10,000+"
+        />
+        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label
+              htmlFor="custom-credits-input"
+              className="text-2xs font-medium text-ink-3 uppercase tracking-wider"
+            >
+              Number of credits
+            </label>
+            <input
+              id="custom-credits-input"
+              type="number"
+              min={1}
+              max={50000}
+              value={customCredits}
+              onChange={(e) =>
+                setCustomCredits(Math.max(1, parseInt(e.target.value) || 1))
+              }
+              className="mt-1.5 w-full rounded-lg border border-line bg-surface-2 px-4 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent font-mono"
+            />
+          </div>
+          <div className="flex items-end gap-4">
+            <div>
+              <p className="text-2xs text-ink-4">Total price</p>
+              <p className="text-2xl font-bold text-ink font-mono">
+                ₹{Math.ceil(customCredits * customPricePerCredit)}
+              </p>
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() =>
+                handlePurchase({
+                  credits: customCredits,
+                  label: "Custom",
+                  priceInr: Math.ceil(customCredits * customPricePerCredit),
+                  perCreditPrice: customPricePerCredit,
+                  discount: 0,
+                })
+              }
+              loading={purchasing === customCredits}
+              loadingLabel="Processing..."
+            >
+              <ShoppingCart size={14} weight="bold" />
+              Buy {customCredits} credit{customCredits !== 1 ? "s" : ""}
+            </Button>
+          </div>
+        </div>
+        <p className="px-4 pb-4 text-2xs text-ink-5">
+          ₹{customPricePerCredit.toFixed(2)} per credit · Volume discounts
+          available in preset packages above
+        </p>
       </Panel>
 
       {/* How It Works */}

@@ -11,7 +11,7 @@ import { submitReviewTemplates } from '@/lib/whatsapp/client';
 
 const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID || '';
 const META_APP_SECRET = process.env.META_APP_SECRET || '';
-const GRAPH_API = 'https://graph.facebook.com/v25.0';
+const GRAPH_API = 'https://graph.facebook.com/v26.0';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

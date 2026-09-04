@@ -401,12 +401,30 @@ export default async function LandingPage() {
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <Wordmark size={22} />
-          <p className="max-w-[52ch] text-2xs leading-relaxed text-ink-4">
-            ReviewMint is not affiliated with Google. Google Business Profile is
-            a trademark of Google LLC.
-          </p>
+        <div className="mx-auto max-w-6xl px-5 py-10 sm:px-8">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <Wordmark size={22} />
+              <p className="mt-2 max-w-[36ch] text-2xs leading-relaxed text-ink-4">
+                Every Google review answered, automatically.
+                <br />A product by NovaMint Networks.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              <Link href="/pricing" className="text-2xs text-ink-4 transition-colors hover:text-ink-2">Pricing</Link>
+              <Link href="/faq" className="text-2xs text-ink-4 transition-colors hover:text-ink-2">FAQ</Link>
+              <Link href="/contact" className="text-2xs text-ink-4 transition-colors hover:text-ink-2">Contact</Link>
+              <Link href="/privacy" className="text-2xs text-ink-4 transition-colors hover:text-ink-2">Privacy</Link>
+              <Link href="/terms" className="text-2xs text-ink-4 transition-colors hover:text-ink-2">Terms</Link>
+              <Link href="/refund" className="text-2xs text-ink-4 transition-colors hover:text-ink-2">Refund Policy</Link>
+            </div>
+          </div>
+          <div className="mt-8 border-t border-line pt-6">
+            <p className="text-2xs text-ink-5">
+              © {new Date().getFullYear()} NovaMint Networks. All rights reserved.
+              ReviewMint is not affiliated with Google. Google Business Profile is a trademark of Google LLC.
+            </p>
+          </div>
         </div>
       </footer>
       </div>

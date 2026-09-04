@@ -233,6 +233,112 @@
 }
 
 /* --- Scrollbars ---------------------------------------------------- */
+
+/* --- Prose (legal / marketing pages) -------------------------------- */
+.prose-legal {
+  max-width: 72ch;
+  color: var(--color-ink-2);
+  font-size: var(--text-base);
+  line-height: 1.7;
+}
+
+.prose-legal h1 {
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-ink);
+  margin-bottom: 0.5rem;
+}
+
+.prose-legal .lead {
+  font-size: var(--text-sm);
+  color: var(--color-ink-4);
+  margin-bottom: 2.5rem;
+}
+
+.prose-legal h2 {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose-legal h3 {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-ink);
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-legal p {
+  margin-bottom: 1rem;
+}
+
+.prose-legal ul,
+.prose-legal ol {
+  padding-left: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.prose-legal ul {
+  list-style-type: disc;
+}
+
+.prose-legal ol {
+  list-style-type: decimal;
+}
+
+.prose-legal li {
+  margin-bottom: 0.4rem;
+  padding-left: 0.25rem;
+}
+
+.prose-legal a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 150ms;
+}
+
+.prose-legal a:hover {
+  color: var(--color-accent-hi);
+}
+
+.prose-legal strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.prose-legal table {
+  width: 100%;
+  margin-top: 1rem;
+  margin-bottom: 1.5rem;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.prose-legal th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-ink);
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-line-2);
+}
+
+.prose-legal td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink-3);
+}
+
+.prose-legal tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- Scrollbars ---------------------------------------------------- */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
